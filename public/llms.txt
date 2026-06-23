@@ -1,0 +1,25 @@
+# Calc
+
+> A minimal, single-page calculator web app with subscription-gated usage. Built with React 19, TypeScript, and Vite; deployed to calc.slopworks.org via GitHub Pages. Open source under AGPL-3.0-or-later.
+
+Calc runs entirely in the browser. Arithmetic, history, memory, language preference, and the subscription pass are all client-side state held in `localStorage` — there is no backend API, no server-side account, and no real payment processing. The "checkout" is a simulated unlock for demonstration only.
+
+## Features
+
+- [Calculator](https://calc.slopworks.org/): standard keypad arithmetic with a running display and keyboard input.
+- Memory functions: store, recall, add to, and clear a running memory value.
+- History: a panel listing recently evaluated expressions.
+- Usage metering: a limited free allowance of calculations; exceeding it raises the paywall.
+- Subscription paywall: a simulated monthly pass that unlocks unlimited calculations (stored locally, no real billing).
+- Internationalization: English and Russian (EN / RU) interface translations.
+- Keyboard shortcuts: an in-app overlay (press `?`) documenting available shortcuts.
+
+## Source
+
+- [GitHub repository](https://github.com/The-Fisher-Slopworks-Co/calc): full source, licensed AGPL-3.0-or-later.
+- [README](https://github.com/The-Fisher-Slopworks-Co/calc/blob/main/README.md): tech stack, local development, and deployment notes.
+
+## Notes
+
+- This is a single-page application; the only canonical URL is https://calc.slopworks.org/.
+- There is no public API, authentication server, or MCP server. All computation and subscription state are client-side only.

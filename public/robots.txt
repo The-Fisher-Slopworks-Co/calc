@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2026 The Fisher Slopworks Co
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+User-agent: *
+Allow: /
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
+
+Sitemap: https://calc.slopworks.org/sitemap.xml
