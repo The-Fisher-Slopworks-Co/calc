@@ -5,9 +5,10 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "../i18n/LanguageProvider.tsx";
 import type { TranslationKey } from "../i18n/translations.ts";
 import { useMediaQuery } from "../hooks/useMediaQuery.ts";
-import { useToast } from "./ToastHost.tsx";
 
 type Plan = "go" | "ultra";
+
+type Phase = "plans" | "processing" | "done" | "error";
 
 const GO_FEATURES: TranslationKey[] = [
   "plan.go.f1",
@@ -26,13 +27,24 @@ const ULTRA_FEATURES: TranslationKey[] = [
   "plan.ultra.f6",
 ];
 
-export const Paywall = () => {
+// Pacing of the simulated checkout: spinner, then a beat on the result icon
+// before the service unlocks (success only).
+const PROCESSING_MS = 1600;
+const DONE_MS = 900;
+
+type Props = { onPaid: () => void };
+
+export const Paywall = ({ onPaid }: Props) => {
   const { t } = useTranslation();
-  const { toast } = useToast();
   const firstCtaRef = useRef<HTMLButtonElement | null>(null);
 
   const isDesktop = useMediaQuery("(min-width: 640px)");
   const [selected, setSelected] = useState<Plan>("ultra");
+  const [phase, setPhase] = useState<Phase>("plans");
+  const [payingPlan, setPayingPlan] = useState<Plan>("ultra");
+
+  const onPaidRef = useRef(onPaid);
+  onPaidRef.current = onPaid;
 
   useEffect(() => {
     const prevOverflow = document.body.style.overflow;
@@ -45,13 +57,33 @@ export const Paywall = () => {
   // Focus the highlighted plan's CTA on mount and whenever the viewport
   // crosses the sm breakpoint (which swaps which card the ref attaches to).
   useEffect(() => {
-    firstCtaRef.current?.focus({ preventScroll: true });
-  }, [isDesktop]);
+    if (phase === "plans") firstCtaRef.current?.focus({ preventScroll: true });
+  }, [isDesktop, phase]);
 
-  const onChoose = () => toast(t("toast.checkout"));
+  // Drive the fake payment timeline. Ultra always "fails" with insufficient
+  // funds; Go succeeds and unlocks the service.
+  useEffect(() => {
+    if (phase === "processing") {
+      const id = window.setTimeout(() => {
+        setPhase(payingPlan === "ultra" ? "error" : "done");
+      }, PROCESSING_MS);
+      return () => window.clearTimeout(id);
+    }
+    if (phase === "done") {
+      const id = window.setTimeout(() => onPaidRef.current(), DONE_MS);
+      return () => window.clearTimeout(id);
+    }
+  }, [phase, payingPlan]);
+
+  const startPayment = (plan: Plan) => {
+    setPayingPlan(plan);
+    setPhase("processing");
+  };
+  const backToPlans = () => setPhase("plans");
 
   const showGo = isDesktop || selected === "go";
   const showUltra = isDesktop || selected === "ultra";
+  const planLabel = payingPlan === "ultra" ? "Ultra · $200" : "Go · $20";
 
   return (
     <div
@@ -63,67 +95,196 @@ export const Paywall = () => {
       <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
 
       <article
-        className="relative w-full max-w-3xl max-h-[calc(100vh-2rem)] overflow-y-auto
-                   rounded-2xl bg-ink-800 border border-zinc-800
-                   p-6 sm:p-10 shadow-monolith animate-card-in"
+        className={
+          "relative w-full max-h-[calc(100vh-2rem)] overflow-y-auto " +
+          "rounded-2xl bg-ink-800 border border-zinc-800 " +
+          "p-6 sm:p-10 shadow-monolith animate-card-in " +
+          (phase === "plans" ? "max-w-3xl" : "max-w-md")
+        }
       >
-        <header className="text-center max-w-xl mx-auto mb-6 sm:mb-8">
-          <span
-            className="inline-block px-2.5 py-1 mb-4 rounded-full
-                       bg-accent/10 border border-accent/30
-                       text-[10px] uppercase tracking-[0.14em] text-accent-strong font-mono"
-          >
-            {t("paywall.eyebrow")}
-          </span>
-          <h2
-            id="paywall-title"
-            className="text-2xl sm:text-4xl font-semibold tracking-tight text-zinc-100 mb-3"
-          >
-            {t("paywall.title")}
-          </h2>
-          <p className="text-zinc-400 text-sm sm:text-base leading-relaxed">
-            {t("paywall.lede")}
-          </p>
-        </header>
+        {phase === "plans" ? (
+          <>
+            <header className="text-center max-w-xl mx-auto mb-6 sm:mb-8">
+              <span
+                className="inline-block px-2.5 py-1 mb-4 rounded-full
+                           bg-accent/10 border border-accent/30
+                           text-[10px] uppercase tracking-[0.14em] text-accent-strong font-mono"
+              >
+                {t("paywall.eyebrow")}
+              </span>
+              <h2
+                id="paywall-title"
+                className="text-2xl sm:text-4xl font-semibold tracking-tight text-zinc-100 mb-3"
+              >
+                {t("paywall.title")}
+              </h2>
+              <p className="text-zinc-400 text-sm sm:text-base leading-relaxed">
+                {t("paywall.lede")}
+              </p>
+            </header>
 
-        <PlanToggle
-          selected={selected}
-          onSelect={setSelected}
-          ariaLabel={t("paywall.toggleAria")}
-        />
+            <PlanToggle
+              selected={selected}
+              onSelect={setSelected}
+              ariaLabel={t("paywall.toggleAria")}
+            />
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5 sm:mt-0">
-          {showGo && (
-            <PlanCard
-              name="Go"
-              price="$20"
-              tagKey="plan.go.tag"
-              features={GO_FEATURES}
-              ctaKey="plan.go.cta"
-              onChoose={onChoose}
-              firstCtaRef={!isDesktop && selected === "go" ? firstCtaRef : undefined}
-            />
-          )}
-          {showUltra && (
-            <PlanCard
-              name="Ultra"
-              price="$200"
-              tagKey="plan.ultra.tag"
-              features={ULTRA_FEATURES}
-              ctaKey="plan.ultra.cta"
-              ribbonKey="plan.ultra.ribbon"
-              highlight
-              onChoose={onChoose}
-              firstCtaRef={
-                isDesktop || selected === "ultra" ? firstCtaRef : undefined
-              }
-            />
-          )}
-        </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5 sm:mt-0">
+              {showGo && (
+                <PlanCard
+                  name="Go"
+                  price="$20"
+                  tagKey="plan.go.tag"
+                  features={GO_FEATURES}
+                  ctaKey="plan.go.cta"
+                  onChoose={() => startPayment("go")}
+                  firstCtaRef={!isDesktop && selected === "go" ? firstCtaRef : undefined}
+                />
+              )}
+              {showUltra && (
+                <PlanCard
+                  name="Ultra"
+                  price="$200"
+                  tagKey="plan.ultra.tag"
+                  features={ULTRA_FEATURES}
+                  ctaKey="plan.ultra.cta"
+                  ribbonKey="plan.ultra.ribbon"
+                  highlight
+                  onChoose={() => startPayment("ultra")}
+                  firstCtaRef={
+                    isDesktop || selected === "ultra" ? firstCtaRef : undefined
+                  }
+                />
+              )}
+            </div>
+          </>
+        ) : (
+          <PaymentStatus
+            phase={phase}
+            planLabel={planLabel}
+            onBack={backToPlans}
+            t={t}
+          />
+        )}
       </article>
     </div>
   );
 };
+
+type PaymentStatusProps = {
+  phase: "processing" | "done" | "error";
+  planLabel: string;
+  onBack: () => void;
+  t: (k: TranslationKey) => string;
+};
+
+const PaymentStatus = ({ phase, planLabel, onBack, t }: PaymentStatusProps) => (
+  <div
+    role="status"
+    aria-live="polite"
+    className="flex flex-col items-center justify-center text-center
+               gap-5 py-10 min-h-[200px]"
+  >
+    <span
+      className="inline-block px-2.5 py-1 rounded-full
+                 bg-accent/10 border border-accent/30
+                 text-[10px] uppercase tracking-[0.14em] text-accent-strong font-mono"
+    >
+      {planLabel}
+    </span>
+
+    {phase === "processing" && <Spinner />}
+    {phase === "done" && <SuccessCheck />}
+    {phase === "error" && <ErrorCross />}
+
+    <h2
+      id="paywall-title"
+      className={
+        "text-lg sm:text-xl font-semibold font-mono " +
+        (phase === "error" ? "text-rose-300" : "text-zinc-100")
+      }
+    >
+      {phase === "processing"
+        ? t("payment.processing")
+        : phase === "done"
+          ? t("payment.done")
+          : t("payment.error.insufficient")}
+    </h2>
+
+    {phase === "error" && (
+      <button
+        type="button"
+        onClick={onBack}
+        className="mt-1 rounded-lg border border-zinc-700 bg-transparent
+                   text-zinc-100 text-sm font-medium px-4 py-2.5
+                   hover:bg-ink-600 hover:border-zinc-600 transition-colors
+                   focus:outline-none focus-visible:ring-2 focus-visible:ring-accent
+                   focus-visible:ring-offset-2 focus-visible:ring-offset-ink-800"
+      >
+        {t("payment.error.back")}
+      </button>
+    )}
+  </div>
+);
+
+const Spinner = () => (
+  <svg
+    className="w-12 h-12 text-accent animate-spin"
+    viewBox="0 0 24 24"
+    fill="none"
+    aria-hidden="true"
+  >
+    <circle
+      cx="12"
+      cy="12"
+      r="9"
+      stroke="currentColor"
+      strokeOpacity="0.2"
+      strokeWidth="2"
+    />
+    <path
+      d="M21 12a9 9 0 0 0-9-9"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+const SuccessCheck = () => (
+  <svg
+    className="w-12 h-12 text-accent-strong animate-pop-in"
+    viewBox="0 0 24 24"
+    fill="none"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+    <path
+      d="M8 12.5l2.5 2.5L16 9"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const ErrorCross = () => (
+  <svg
+    className="w-12 h-12 text-rose-400 animate-pop-in"
+    viewBox="0 0 24 24"
+    fill="none"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+    <path
+      d="M9 9l6 6M15 9l-6 6"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+  </svg>
+);
 
 type ToggleProps = {
   selected: Plan;

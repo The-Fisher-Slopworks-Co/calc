@@ -8,29 +8,50 @@ import { LanguageSwitcher } from "./components/LanguageSwitcher.tsx";
 import { Paywall } from "./components/Paywall.tsx";
 import { ShortcutsOverlay } from "./components/ShortcutsOverlay.tsx";
 import { useToast } from "./components/ToastHost.tsx";
+import { UsageMeter } from "./components/UsageMeter.tsx";
 import { useCalculator } from "./hooks/useCalculator.ts";
 import { useHistory } from "./hooks/useHistory.ts";
 import { useMemory } from "./hooks/useMemory.ts";
+import { useSubscription } from "./hooks/useSubscription.ts";
+import { useUsage } from "./hooks/useUsage.ts";
 import { useTranslation } from "./i18n/LanguageProvider.tsx";
+
+const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 
 const App = () => {
   const { t } = useTranslation();
   const { toast } = useToast();
   const history = useHistory();
   const memory = useMemory();
+  const subscription = useSubscription();
+  const usage = useUsage();
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const shortcutsRef = useRef(shortcutsOpen);
   shortcutsRef.current = shortcutsOpen;
 
   const onEvaluate = useCallback(
-    (expression: string) => history.add(expression),
-    [history],
+    (expression: string) => {
+      history.add(expression);
+      usage.record();
+    },
+    [history, usage],
   );
 
   const isInputBlocked = useCallback(() => shortcutsRef.current, []);
 
-  const calc = useCalculator({ onEvaluate, isInputBlocked });
+  const calc = useCalculator({
+    onEvaluate,
+    isInputBlocked,
+    isUnlocked: () => subscription.isActive,
+    isOverLimit: () => usage.count >= usage.limit,
+    onLimitReached: () => toast(t("usage.limitReached")),
+  });
+
+  const onPaid = useCallback(() => {
+    subscription.activate(MONTH_MS);
+    calc.reveal();
+  }, [subscription.activate, calc.reveal]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -52,6 +73,7 @@ const App = () => {
       />
 
       <LanguageSwitcher />
+      {subscription.isActive && <UsageMeter usage={usage} />}
 
       <main className="min-h-screen flex flex-col items-center px-6 py-12 gap-6 sm:gap-8">
         <header className="flex items-center gap-3 text-sm">
@@ -84,7 +106,7 @@ const App = () => {
         </div>
       </main>
 
-      {calc.isLocked && <Paywall />}
+      {calc.isLocked && <Paywall onPaid={onPaid} />}
       {shortcutsOpen && (
         <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />
       )}

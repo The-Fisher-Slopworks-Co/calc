@@ -14,6 +14,7 @@ export const OP_SYMBOL: Record<Operator, string> = {
 };
 
 const LOCKED = "•••";
+const ERROR = "Error";
 
 type State = {
   current: string;
@@ -39,14 +40,42 @@ const lockedState = (): State => ({
   justEvaluated: true,
 });
 
+const errorState = (): State => ({
+  current: ERROR,
+  previous: null,
+  operator: null,
+  overwrite: false,
+  justEvaluated: true,
+});
+
 const buildExpression = (s: State): string | null => {
   if (s.previous === null || s.operator === null) return null;
   return `${formatNumber(s.previous)} ${OP_SYMBOL[s.operator]} ${s.current}`;
 };
 
+const compute = (a: number, op: Operator, b: number): number => {
+  switch (op) {
+    case "+":
+      return a + b;
+    case "-":
+      return a - b;
+    case "*":
+      return a * b;
+    case "/":
+      return a / b;
+  }
+};
+
 export type CalculatorOptions = {
   onEvaluate?: (expression: string) => void;
   isInputBlocked?: () => boolean;
+  // When this returns true the calculator evaluates for real instead of
+  // routing the operation through the paywall.
+  isUnlocked?: () => boolean;
+  // When this returns true the monthly quota is spent: evaluations fail with
+  // an error instead of computing.
+  isOverLimit?: () => boolean;
+  onLimitReached?: () => void;
 };
 
 export type CalculatorApi = {
@@ -63,6 +92,7 @@ export type CalculatorApi = {
   toggleSign: () => void;
   percent: () => void;
   backspace: () => void;
+  reveal: () => void;
   loadValue: (n: number) => void;
 };
 
@@ -75,14 +105,53 @@ export const useCalculator = (options: CalculatorOptions = {}): CalculatorApi =>
   lockedRef.current = isLocked;
   const optionsRef = useRef(options);
   optionsRef.current = options;
+  // The operation that hit the paywall, stashed as a thunk so a later unlock
+  // can reveal its result. It is never invoked while locked.
+  const pendingRef = useRef<(() => number) | null>(null);
 
-  // The only path that "evaluates": redacts the display and locks the
-  // calculator. Intentionally never computes the result client-side — even
-  // with the paywall blocked, there is no arithmetic to inspect.
-  const triggerLock = useCallback((expression: string | null) => {
+  // Locked path: redact the display, remember the attempted operation, and
+  // raise the paywall. No arithmetic runs until the user unlocks.
+  const triggerLock = useCallback(
+    (expression: string | null, resultFn: () => number) => {
+      if (expression) optionsRef.current.onEvaluate?.(expression);
+      pendingRef.current = resultFn;
+      setState(lockedState());
+      setIsLocked(true);
+    },
+    [],
+  );
+
+  // Unlocked path: evaluate for real, log the expression, and show the result.
+  const settle = useCallback((expression: string | null, result: number) => {
     if (expression) optionsRef.current.onEvaluate?.(expression);
-    setState(lockedState());
-    setIsLocked(true);
+    setState({
+      ...initialState(),
+      current: formatNumber(result),
+      justEvaluated: true,
+    });
+  }, []);
+
+  // Quota exhausted: surface an error instead of computing, and don't log the
+  // attempt so nothing else is consumed.
+  const failLimit = useCallback(() => {
+    optionsRef.current.onLimitReached?.();
+    setState(errorState());
+  }, []);
+
+  // Payment succeeded: drop the lock and reveal the stashed result, if any.
+  const reveal = useCallback(() => {
+    const resultFn = pendingRef.current;
+    pendingRef.current = null;
+    setIsLocked(false);
+    setState(
+      resultFn
+        ? {
+            ...initialState(),
+            current: formatNumber(resultFn()),
+            justEvaluated: true,
+          }
+        : initialState(),
+    );
   }, []);
 
   const inputDigit = useCallback((d: string) => {
@@ -123,11 +192,30 @@ export const useCalculator = (options: CalculatorOptions = {}): CalculatorApi =>
   const setOperator = useCallback(
     (op: Operator) => {
       const s = stateRef.current;
-      if (s.previous !== null && s.operator && !s.overwrite) {
-        // Chaining (e.g. 2 + 3 +) would need previous ⊕ current evaluated
-        // before queueing the new operator. That is the locked operation,
-        // so route it through triggerLock instead of computing.
-        triggerLock(buildExpression(s));
+      const { previous, operator } = s;
+      if (previous !== null && operator && !s.overwrite) {
+        // Chaining (e.g. 2 + 3 +) folds previous ⊕ current before queueing the
+        // new operator. Unlocked we fold it; locked it is the gated operation,
+        // so stash it and raise the paywall instead of computing.
+        const b = parseFloat(s.current);
+        const expr = buildExpression(s);
+        if (optionsRef.current.isUnlocked?.()) {
+          if (optionsRef.current.isOverLimit?.()) {
+            failLimit();
+            return;
+          }
+          if (expr) optionsRef.current.onEvaluate?.(expr);
+          const result = compute(previous, operator, b);
+          setState({
+            ...initialState(),
+            current: formatNumber(result),
+            previous: result,
+            operator: op,
+            overwrite: true,
+          });
+        } else {
+          triggerLock(expr, () => compute(previous, operator, b));
+        }
         return;
       }
       setState((curr) => ({
@@ -138,20 +226,40 @@ export const useCalculator = (options: CalculatorOptions = {}): CalculatorApi =>
         justEvaluated: false,
       }));
     },
-    [triggerLock],
+    [triggerLock, failLimit],
   );
 
   const equals = useCallback(() => {
     const s = stateRef.current;
-    if (s.previous === null || s.operator === null) return;
-    triggerLock(buildExpression(s));
-  }, [triggerLock]);
+    const { previous, operator } = s;
+    if (previous === null || operator === null) return;
+    const b = parseFloat(s.current);
+    const expr = buildExpression(s);
+    if (optionsRef.current.isUnlocked?.()) {
+      if (optionsRef.current.isOverLimit?.()) {
+        failLimit();
+        return;
+      }
+      settle(expr, compute(previous, operator, b));
+    } else {
+      triggerLock(expr, () => compute(previous, operator, b));
+    }
+  }, [settle, triggerLock, failLimit]);
 
-  // current / 100 is still arithmetic on a user-supplied operand; route it
-  // through the same lock so the result is never produced client-side.
+  // current / 100 is arithmetic on a user-supplied operand: unlocked we compute
+  // it, locked we gate it like any other evaluation.
   const percent = useCallback(() => {
-    triggerLock(null);
-  }, [triggerLock]);
+    const b = parseFloat(stateRef.current.current);
+    if (optionsRef.current.isUnlocked?.()) {
+      if (optionsRef.current.isOverLimit?.()) {
+        failLimit();
+        return;
+      }
+      settle(null, b / 100);
+    } else {
+      triggerLock(null, () => b / 100);
+    }
+  }, [settle, triggerLock, failLimit]);
 
   const backspace = useCallback(() => {
     setState((s) => {
@@ -224,6 +332,7 @@ export const useCalculator = (options: CalculatorOptions = {}): CalculatorApi =>
     toggleSign,
     percent,
     backspace,
+    reveal,
     loadValue,
   };
 };
