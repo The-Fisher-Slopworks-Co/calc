@@ -1,12 +1,12 @@
 <!--
-SPDX-FileCopyrightText: 2026 Eugene Fisher <z.ribin20@gmail.com>
+SPDX-FileCopyrightText: 2026 The Fisher Slopworks Co
 SPDX-License-Identifier: AGPL-3.0-or-later
 -->
 
 # Calc
 
 A minimal calculator with subscription plans, deployed to
-[calc.txssu.dev](https://calc.txssu.dev) via GitHub Pages.
+[calc.slopworks.org](https://calc.slopworks.org) via GitHub Pages.
 
 ## Tech stack
 
@@ -36,13 +36,13 @@ Pushes to `main` trigger `.github/workflows/deploy.yml`, which:
 3. Builds the production bundle with `vite build`.
 4. Uploads `dist/` as a GitHub Pages artifact and publishes it.
 
-The custom domain `calc.txssu.dev` is configured via `public/CNAME`, which
+The custom domain `calc.slopworks.org` is configured via `public/CNAME`, which
 Vite copies into `dist/` during the build.
 
 ### One-time setup
 
 1. In **Settings → Pages**, set **Source** to **GitHub Actions**.
-2. Add a DNS `CNAME` record pointing `calc.txssu.dev` to `<owner>.github.io`.
+2. Add a DNS `CNAME` record pointing `calc.slopworks.org` to `The-Fisher-Slopworks-Co.github.io`.
 3. After the certificate is provisioned, enable **Enforce HTTPS** in
    **Settings → Pages**.
 
@@ -69,9 +69,12 @@ src/
 
 ## License
 
-Licensed under [AGPL-3.0-or-later](LICENSES/AGPL-3.0-or-later.txt).
+AGPL-3.0-or-later. See [LICENSE](LICENSE).
 
 The repository is [REUSE](https://reuse.software/) compliant: every file
 declares its copyright and license either inline (via `SPDX-FileCopyrightText`
 and `SPDX-License-Identifier` headers) or through `REUSE.toml`. Compliance
 is verified on every push by `.github/workflows/reuse.yml`.
+
+Code of Conduct, contributing, and security policy are inherited org-wide from
+[`The-Fisher-Slopworks-Co/.github`](https://github.com/The-Fisher-Slopworks-Co/.github).
