@@ -5,6 +5,11 @@ import { useCallback, useEffect, useState } from "react";
 
 const STORAGE_KEY = "calc.subscription";
 
+// setTimeout truncates its delay to a 32-bit signed int, so any delay past
+// ~24.8 days overflows to a negative value and fires immediately. Cap each arm
+// to this and re-schedule until the real expiry.
+const MAX_TIMEOUT = 2_147_483_647;
+
 // Stored value is the expiry timestamp in ms. A pass that has already lapsed is
 // treated as no pass at all.
 const loadInitial = (): number | null => {
@@ -41,12 +46,16 @@ export const useSubscription = (): SubscriptionApi => {
   // the next evaluation raises the paywall again without a reload.
   useEffect(() => {
     if (expiresAt === null) return;
-    const ms = expiresAt - Date.now();
-    if (ms <= 0) {
-      setExpiresAt(null);
-      return;
-    }
-    const id = window.setTimeout(() => setExpiresAt(null), ms);
+    let id = 0;
+    const arm = () => {
+      const ms = expiresAt - Date.now();
+      if (ms <= 0) {
+        setExpiresAt(null);
+        return;
+      }
+      id = window.setTimeout(arm, Math.min(ms, MAX_TIMEOUT));
+    };
+    arm();
     return () => window.clearTimeout(id);
   }, [expiresAt]);
 
